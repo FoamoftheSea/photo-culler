@@ -7,7 +7,6 @@ import shutil
 
 from pathlib import Path
 
-MIN_SCORE = 7
 PROMPT = """
 Assess the quality of the following image based on key photographic criteria: 
 focus, composition, exposure, color balance, and subject matter interest.
@@ -38,6 +37,7 @@ def main(args):
         img_paths.extend(list(img_folder.glob(f"*.{ext}")))
 
     photo_reviews = {}
+    photo_scores = {}
     for img_path in img_paths:
         res = ollama.generate(
             model="llava:photo-culler",
@@ -47,12 +47,16 @@ def main(args):
             format="json"
         )
         res_dict = json.loads(res["response"])
+        res_dict["url"] = str(img_path)
         pprint(res_dict)
         photo_reviews[img_path.stem] = res_dict
-        if res_dict["score"] >= MIN_SCORE:
-            out_path = out_folder / img_path.name
-            out_path.mkdir(parents=True, exist_ok=True)
-            shutil.copy(img_path, out_path)
+        photo_scores[img_path] = float(res_dict["score"])
+
+    keepers = {k: v for k, v in photo_scores.items() if v >= args.min_score}
+    for img_path in sorted(keepers, reverse=True)[:args.num_keepers]:
+        out_path = out_folder / img_path.name
+        out_path.mkdir(parents=True, exist_ok=True)
+        shutil.copy(img_path, out_path)
 
     if len(photo_reviews) > 0:
         with open(out_folder / "photo_reviews.json", "w") as f:
@@ -63,6 +67,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Scan folder of photographs and save the keepers to a new folder.")
     parser.add_argument("-i", "--input", type=str, help="Path to folder containing images.")
     parser.add_argument("-o", "--output", default="./keepers/", help="Path to output folder for keepers.")
+    parser.add_argument("-ms", "--min-score", default=7, type=int, help="Minimum score (out of 10) to keep a photo.")
+    parser.add_argument("-n", "--num-keepers", default=None, type=int, help="Max number of photos to keep.")
 
     args = parser.parse_args()
     main(args)
